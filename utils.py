@@ -154,7 +154,7 @@ def set_seed(seed_num):
     torch.cuda.manual_seed_all(seed_num)
     
 def start_wandb(run_name, model_name, lr, epochs):
-    os.environ["WANDB_API_KEY"] = "fb5654a489ac69b6a0e67c9a5bc773817fbcfe0a"
+    os.environ["WANDB_API_KEY"] = "YOUR_API_KEY"
     # Starting a new wandb run to track this script
     wandb.init(
         # set the wandb project where this run will be logged
