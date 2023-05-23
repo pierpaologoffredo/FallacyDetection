@@ -27,9 +27,10 @@ def train(epoch, model, training_loader, optimizer, device):
       mask = batch['attention_mask'].to(device, dtype = torch.long)
       labels = batch['labels'].to(device, dtype = torch.long)
       comps = batch['comps'].to(device, dtype = torch.long)
+      rels = batch['rels'].to(device, dtype = torch.long)
 
       ## The tensor features are passed to the model
-      outputs = model(input_ids=ids, attention_mask=mask, labels=labels, arg_feat=comps)
+      outputs = model(input_ids=ids, attention_mask=mask, labels=labels, arg_comps=comps, arg_rels=rels)
       loss = outputs.loss
       tr_logits = outputs.logits
       tr_loss += loss.item()
@@ -98,9 +99,10 @@ def valid(model, testing_loader, device, ids_to_labels):
         mask = batch['attention_mask'].to(device, dtype = torch.long)
         labels = batch['labels'].to(device, dtype = torch.long)
         comps = batch['comps'].to(device, dtype = torch.long)
+        rels = batch['rels'].to(device, dtype = torch.long)
         
         ## The tensor features are passed to the model
-        outputs = model(input_ids=ids, attention_mask=mask, labels=labels, arg_feat=comps)
+        outputs = model(input_ids=ids, attention_mask=mask, labels=labels, arg_comps=comps, arg_rels=rels)
         loss = outputs.loss
         eval_logits = outputs.logits
 
@@ -302,10 +304,14 @@ def run_experiment(model_name, num_epochs, lr, device, cased=False, roberta=Fals
     config.num_labels = len(labels_to_ids)
     config.id2label = ids_to_labels
     config.label2id = labels_to_ids
-
+    config_feat = AutoConfig.from_pretrained(model_name)
+    config_feat.num_labels = 3
+    
+    
     ## Load ModelForTokenClassification
     if ignore_mismatched_sizes:
-        model = AutoModelForTokenClassification.from_pretrained(model_name, config=config, ignore_mismatched_sizes=True)
+        # model = AutoModelForTokenClassification.from_pretrained(model_name, config=config, ignore_mismatched_sizes=True)
+        model = newRobertaForTokenClassification.from_pretrained(model_name, config=config, config_feat=config_feat, ignore_mismatched_sizes=True)
     else:
         model = AutoModelForTokenClassification.from_pretrained(model_name, config=config)
     
@@ -318,93 +324,93 @@ def run_experiment(model_name, num_epochs, lr, device, cased=False, roberta=Fals
     best_epoch = 0
     optimizer = torch.optim.Adam(params=model.parameters(), lr=lr)
 
-    for epoch in tqdm(range(num_epochs)):
+    # for epoch in tqdm(range(num_epochs)):
         
-        print(f"\nTraining epoch: {epoch + 1}")
-        ## TRAINING MODE
-        train(epoch, model, training_loader, optimizer, device)
+    #     print(f"\nTraining epoch: {epoch + 1}")
+    #     ## TRAINING MODE
+    #     train(epoch, model, training_loader, optimizer, device)
 
-        ## EVALUATION MODE
-        labels, predictions, curr_val_loss = valid(model, testing_loader, device, ids_to_labels)
+    #     ## EVALUATION MODE
+    #     labels, predictions, curr_val_loss = valid(model, testing_loader, device, ids_to_labels)
 
-        ## Replacing BIO tags with normal tags for readable classification report
-        full_predictions = [e.replace("B-", "").replace("I-", "") for e in predictions]
-        full_labels = [e.replace("B-", "").replace("I-", "") for e in labels]
+    #     ## Replacing BIO tags with normal tags for readable classification report
+    #     full_predictions = [e.replace("B-", "").replace("I-", "") for e in predictions]
+    #     full_labels = [e.replace("B-", "").replace("I-", "") for e in labels]
 
-        ## Print the temporary classification report
-        print("#"*100)
-        print(classification_report(full_labels, full_predictions))
-        print("#"*100)
+    #     ## Print the temporary classification report
+    #     print("#"*100)
+    #     print(classification_report(full_labels, full_predictions))
+    #     print("#"*100)
         
-        cr = classification_report(full_labels, full_predictions, output_dict=True)
-        macro_f1_score = cr["macro avg"]["f1-score"]
+    #     cr = classification_report(full_labels, full_predictions, output_dict=True)
+    #     macro_f1_score = cr["macro avg"]["f1-score"]
         
-        ## Saving the best model
-        model_path = "" + model_name + "_epochs_" + str(num_epochs)  
-        output_model_dir = os.path.join("models/edit_results", model_path)
-        os.makedirs(output_model_dir, exist_ok=True)
-        if macro_f1_score > best_val_f1:
-            model.save_pretrained(output_model_dir)
-            best_val_f1 = macro_f1_score
-            best_epoch = epoch
+    #     ## Saving the best model
+    #     model_path = "" + model_name + "_epochs_" + str(num_epochs)  
+    #     output_model_dir = os.path.join("models/edit_results", model_path)
+    #     os.makedirs(output_model_dir, exist_ok=True)
+    #     if macro_f1_score > best_val_f1:
+    #         model.save_pretrained(output_model_dir)
+    #         best_val_f1 = macro_f1_score
+    #         best_epoch = epoch
         
-        ## Log metrics to wandb
-        wandb.log({"lr": lr, "epoch": epoch, "macro_avg f1": cr["macro avg"]["f1-score"]})
+    #     ## Log metrics to wandb
+    #     wandb.log({"lr": lr, "epoch": epoch, "macro_avg f1": cr["macro avg"]["f1-score"]})
         
 
-    print()
-    print(model_name)
-    best = ""
-    print("The {} model has been trained for {} epochs. ".format(model_name, num_epochs))
-    best += "The {} model has been trained for {} epochs. ".format(model_name, num_epochs)
-    print("The model performed at its best at the {} epoch with validation loss of {}.".format(best_epoch, best_val_f1))
-    best += "The model performed at its best at the {} epoch with validation loss of {}.".format(best_epoch, best_val_f1)
+    # print()
+    # print(model_name)
+    # best = ""
+    # print("The {} model has been trained for {} epochs. ".format(model_name, num_epochs))
+    # best += "The {} model has been trained for {} epochs. ".format(model_name, num_epochs)
+    # print("The model performed at its best at the {} epoch with validation loss of {}.".format(best_epoch, best_val_f1))
+    # best += "The model performed at its best at the {} epoch with validation loss of {}.".format(best_epoch, best_val_f1)
     
-    ########## TESTING PHASE ##########
-    # folder_path = "models/results/new_Jean-Baptiste/roberta-large-ner-english_epochs_20/"
-    # model = RobertaForTokenClassification.from_pretrained("/models/results/new_Jean-Baptiste/roberta-large-ner-english_epochs_20/")
-    # new_mod = RobertaForTokenClassification.from_pretrained(folder_path, config = config, ignore_mismatched_sizes=True)
+    # ########## TESTING PHASE ##########
+    # # folder_path = "models/results/new_Jean-Baptiste/roberta-large-ner-english_epochs_20/"
+    # # model = RobertaForTokenClassification.from_pretrained("/models/results/new_Jean-Baptiste/roberta-large-ner-english_epochs_20/")
+    # # new_mod = RobertaForTokenClassification.from_pretrained(folder_path, config = config, ignore_mismatched_sizes=True)
     
-    if model_name == "distilbert-base-uncased":
-        new_mod = DistilBertForTokenClassification.from_pretrained(output_model_dir, config = config)
-    elif model_name == "microsoft/deberta-base": 
-        new_mod = DebertaForTokenClassification.from_pretrained(output_model_dir, config = config)
-    elif model_name == "Jean-Baptiste/roberta-large-ner-english": #roberta true, ignore = true
-        new_mod = RobertaForTokenClassification.from_pretrained(output_model_dir, config = config, ignore_mismatched_sizes=True)
-    elif model_name == "bhadresh-savani/electra-base-discriminator-finetuned-conll03-english":
-        new_mod = ElectraForTokenClassification.from_pretrained(output_model_dir, config = config, ignore_mismatched_sizes=True)
-    elif model_name == "brad1141/Longformer-finetuned-norm":
-        new_mod = LongformerForTokenClassification.from_pretrained(output_model_dir, config = config, ignore_mismatched_sizes=True)
-    elif model_name == "bert-base-uncased":
-        new_mod = BertForTokenClassification.from_pretrained(output_model_dir, config = config)
-    elif model_name == "albert-base-v2":
-        new_mod = AlbertForTokenClassification.from_pretrained(output_model_dir, config = config)
-    elif model_name == "bert-large-cased":
-        new_mod = BertForTokenClassification.from_pretrained(output_model_dir, config = config)
-    elif model_name == "xlnet-large-cased":
-        new_mod = XLNetForTokenClassification.from_pretrained(output_model_dir, config = config)
-    elif model_name == "albert-xxlarge-v2":
-        new_mod = AlbertForTokenClassification.from_pretrained(output_model_dir, config = config)
-    elif model_name == "distilbert-base-cased":
-        new_mod = DistilBertForTokenClassification.from_pretrained(output_model_dir, config = config)
-    elif model_name == "electra-large-discriminator":
-        new_mod = ElectraForTokenClassification.from_pretrained(output_model_dir, config = config, ignore_mismatched_sizes=True)
-    elif model_name == "xlm-roberta-large":
-        new_mod = XLMRobertaForTokenClassification.from_pretrained(output_model_dir, config = config)
-    elif model_name == "albert-xxlarge-v2":
-        new_mod = AlbertForTokenClassification.from_pretrained(output_model_dir, config = config)
-    elif model_name == "distilbert-base-cased":
-        new_mod = DistilBertForTokenClassification.from_pretrained(output_model_dir, config = config)
-    elif model_name == "dbmdz/electra-large-discriminator-finetuned-conll03-english":
-        new_mod = ElectraForTokenClassification.from_pretrained(output_model_dir, config = config, ignore_mismatched_sizes=True)
+    # if model_name == "distilbert-base-uncased":
+    #     new_mod = DistilBertForTokenClassification.from_pretrained(output_model_dir, config = config)
+    # elif model_name == "microsoft/deberta-base": 
+    #     new_mod = DebertaForTokenClassification.from_pretrained(output_model_dir, config = config)
+    # elif model_name == "Jean-Baptiste/roberta-large-ner-english": #roberta true, ignore = true
+    #     new_mod = newRobertaForTokenClassification.from_pretrained(output_model_dir, config = config, config_feat=config_feat, ignore_mismatched_sizes=True)
+    # elif model_name == "bhadresh-savani/electra-base-discriminator-finetuned-conll03-english":
+    #     new_mod = ElectraForTokenClassification.from_pretrained(output_model_dir, config = config, ignore_mismatched_sizes=True)
+    # elif model_name == "brad1141/Longformer-finetuned-norm":
+    #     new_mod = LongformerForTokenClassification.from_pretrained(output_model_dir, config = config, ignore_mismatched_sizes=True)
+    # elif model_name == "bert-base-uncased":
+    #     new_mod = BertForTokenClassification.from_pretrained(output_model_dir, config = config)
+    # elif model_name == "albert-base-v2":
+    #     new_mod = AlbertForTokenClassification.from_pretrained(output_model_dir, config = config)
+    # elif model_name == "bert-large-cased":
+    #     new_mod = BertForTokenClassification.from_pretrained(output_model_dir, config = config)
+    # elif model_name == "xlnet-large-cased":
+    #     new_mod = XLNetForTokenClassification.from_pretrained(output_model_dir, config = config)
+    # elif model_name == "albert-xxlarge-v2":
+    #     new_mod = AlbertForTokenClassification.from_pretrained(output_model_dir, config = config)
+    # elif model_name == "distilbert-base-cased":
+    #     new_mod = DistilBertForTokenClassification.from_pretrained(output_model_dir, config = config)
+    # elif model_name == "electra-large-discriminator":
+    #     new_mod = ElectraForTokenClassification.from_pretrained(output_model_dir, config = config, ignore_mismatched_sizes=True)
+    # elif model_name == "xlm-roberta-large":
+    #     new_mod = XLMRobertaForTokenClassification.from_pretrained(output_model_dir, config = config)
+    # elif model_name == "albert-xxlarge-v2":
+    #     new_mod = AlbertForTokenClassification.from_pretrained(output_model_dir, config = config)
+    # elif model_name == "distilbert-base-cased":
+    #     new_mod = DistilBertForTokenClassification.from_pretrained(output_model_dir, config = config)
+    # elif model_name == "dbmdz/electra-large-discriminator-finetuned-conll03-english":
+    #     new_mod = ElectraForTokenClassification.from_pretrained(output_model_dir, config = config, ignore_mismatched_sizes=True)
     
     
-    ## Move model to GPU
-    new_mod = new_mod.to(device)
-    snippets, preds = test(model = new_mod, tokenizer = tokenizer, 
-                                test_dataset = test_dataset, ids_to_labels = ids_to_labels)
+    # ## Move model to GPU
+    # new_mod = new_mod.to(device)
+    # snippets, preds = test(model = new_mod, tokenizer = tokenizer, 
+    #                             test_dataset = test_dataset, ids_to_labels = ids_to_labels)
     
-    make_reports(output_model_dir, preds, best)
+    # make_reports(output_model_dir, preds, best)
     
 
 if __name__ == "__main__":
