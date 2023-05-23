@@ -67,8 +67,8 @@ class FallacyDataset(Dataset):
         ## 3. Convert all tags into numbers w/ labels_to_ids
         # ipdb.set_trace()
         labels = [self.labels_to_ids[label] for label in tags]
-        comps = [1 if comp == "Claim" else 0 for comp in comps]
-        rels = [1 if rel == "Attack" else 0 for rel in rels]
+        comps = [1 if comp == "Claim" else 2 if comp == "Premise" else 0 for comp in comps]
+        rels = [1 if rel == "Attack" else 2 if rel == "Support" else 0 for rel in rels]
         
         ## 3.1 Create an empty array filled of "-100" with size max length 
         encoded_labels = torch.full((self.max_len,), fill_value=-100, dtype=torch.long)
@@ -301,8 +301,6 @@ if __name__ == "__main__":
     # dev_df = convert_bio_to_df(dev_data)
     test_df = convert_bio_to_df(test_data)
     
-    
-
     # ### 2.1 Concatenating train_df and dev_df into a single DataFrame
     # data_merged = [train_df, dev_df]
     # train_df = pd.concat(data_merged).reset_index(drop=True)
@@ -358,16 +356,16 @@ if __name__ == "__main__":
     config_feat = AutoConfig.from_pretrained(model_name)
     config_feat.num_labels = 2
     
-    model = newRobertaForTokenClassification.from_pretrained(model_name, config=config, config_feat=config_feat, ignore_mismatched_sizes=True)
-    model.num_labels = len(labels_to_ids)
+    # model = newRobertaForTokenClassification.from_pretrained(model_name, config=config, config_feat=config_feat, ignore_mismatched_sizes=True)
+    # model.num_labels = len(labels_to_ids)
 
-    ## Move model to GPU
-    model = model.to(device)
-    optimizer = torch.optim.Adam(params=model.parameters(), lr=2e-05)
+    # ## Move model to GPU
+    # model = model.to(device)
+    # optimizer = torch.optim.Adam(params=model.parameters(), lr=2e-05)
     
-    for epoch in tqdm(range(3)):
+    # for epoch in tqdm(range(3)):
         
-        print(f"\nTraining epoch: {epoch + 1}")
-        ## TRAINING MODE
-        train(epoch, model, testing_loader, optimizer, device)
+    #     print(f"\nTraining epoch: {epoch + 1}")
+    #     ## TRAINING MODE
+    #     train(epoch, model, testing_loader, optimizer, device)
     
