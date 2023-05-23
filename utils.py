@@ -23,6 +23,8 @@ def read_conll_file(conll_path):
                 words, labels, arg_comp, arg_rel = [], [], [], []
             else:
                 splits = line.split("\t")
+                ## We skip the Equivalent relationship due to insignificant num of occurrences
+                # if splits[2] != "Equivalent": 
                 words.append(splits[1])
                 arg_rel.append(splits[2])
                 arg_comp.append(splits[3])
@@ -63,12 +65,15 @@ class FallacyDataset(Dataset):
         )
 
         ## 3. Convert all tags into numbers w/ labels_to_ids
+        # ipdb.set_trace()
         labels = [self.labels_to_ids[label] for label in tags]
         comps = [1 if comp == "Claim" else 0 for comp in comps]
+        rels = [1 if rel == "Attack" else 0 for rel in rels]
         
         ## 3.1 Create an empty array filled of "-100" with size max length 
         encoded_labels = torch.full((self.max_len,), fill_value=-100, dtype=torch.long)
         encoded_comps = torch.full((self.max_len,), fill_value=-100, dtype=torch.long)
+        encoded_rels = torch.full((self.max_len,), fill_value=-100, dtype=torch.long)
         
         ### Set only labels whose first offset position is 0 and the second is not 0
         i = 0
@@ -77,6 +82,7 @@ class FallacyDataset(Dataset):
                 try:
                     encoded_labels[idx] = labels[i]
                     encoded_comps[idx] = comps[i]
+                    encoded_rels[idx] = rels[i]
                 except:
                     pass
                 i += 1
@@ -85,6 +91,7 @@ class FallacyDataset(Dataset):
         item = {key: torch.as_tensor(val) for key, val in encoding.items()}
         item["labels"] = encoded_labels
         item["comps"] = encoded_comps
+        item["rels"] = encoded_rels
         item = {key: val.to(self.device) for key, val in item.items()}
         return item
 
@@ -207,9 +214,10 @@ def train(epoch, model, training_loader, optimizer, device):
         mask = batch['attention_mask'].to(device, dtype = torch.long)
         labels = batch['labels'].to(device, dtype = torch.long)
         comps = batch['comps'].to(device, dtype = torch.long)
+        rels = batch['rels'].to(device, dtype = torch.long)
 
         ## The tensor features are passed to the model
-        outputs = model(input_ids=ids, attention_mask=mask, labels=labels, arg_feat=comps)
+        outputs = model(input_ids=ids, attention_mask=mask, labels=labels, arg_comps=comps, arg_rels=rels)
         loss = outputs.loss
         tr_logits = outputs.logits
         tr_loss += loss.item()
@@ -347,8 +355,10 @@ if __name__ == "__main__":
     config.num_labels = len(labels_to_ids)
     config.id2label = ids_to_labels
     config.label2id = labels_to_ids
+    config_feat = AutoConfig.from_pretrained(model_name)
+    config_feat.num_labels = 2
     
-    model = newRobertaForTokenClassification.from_pretrained(model_name, config=config, ignore_mismatched_sizes=True)
+    model = newRobertaForTokenClassification.from_pretrained(model_name, config=config, config_feat=config_feat, ignore_mismatched_sizes=True)
     model.num_labels = len(labels_to_ids)
 
     ## Move model to GPU
