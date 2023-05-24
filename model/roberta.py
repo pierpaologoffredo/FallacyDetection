@@ -1177,10 +1177,9 @@ class RobertaForSequenceClassification(RobertaPreTrainedModel):
         super().__init__(config)
         self.num_labels = config.num_labels
         self.config = config
-
         self.roberta = RobertaModel(config, add_pooling_layer=False)
         self.classifier = RobertaClassificationHead(config)
-
+        
         # Initialize weights and apply final processing
         self.post_init()
 
@@ -1592,10 +1591,15 @@ class newRobertaForTokenClassification(RobertaPreTrainedModel):
     _keys_to_ignore_on_load_unexpected = [r"pooler"]
     _keys_to_ignore_on_load_missing = [r"position_ids"]
 
-    def __init__(self, config):
-        super().__init__(config)
+    def __init__(self, config, config_feat):
+        super().__init__(config, config_feat)
         self.num_labels = config.num_labels
 
+        ## New features
+        self.num_comp = config_feat.num_labels
+        self.alpha = 0.5
+        self.feat_classifier = nn.Linear(config_feat.hidden_size, config_feat.num_labels)
+        
         self.roberta = RobertaModel(config, add_pooling_layer=False)
         classifier_dropout = (
             config.classifier_dropout if config.classifier_dropout is not None else config.hidden_dropout_prob
@@ -1603,10 +1607,10 @@ class newRobertaForTokenClassification(RobertaPreTrainedModel):
         self.dropout = nn.Dropout(classifier_dropout)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
         
-        ## New features
-        self.alpha = 0.5
-
         # Initialize weights and apply final processing
+        self.post_init()
+        
+        self.roberta_feat = RobertaModel(config=config_feat, add_pooling_layer=False)
         self.post_init()
 
     @add_start_docstrings_to_model_forward(ROBERTA_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
@@ -1653,13 +1657,33 @@ class newRobertaForTokenClassification(RobertaPreTrainedModel):
         )
 
         sequence_output = outputs[0]
-        print("sequence_output: ", sequence_output)
+        print("sequence_output: ", sequence_output.shape)
         sequence_output = self.dropout(sequence_output)
-        print("DROPUOT sequence_output: ", sequence_output)
+        print("DROPUOT sequence_output: ", sequence_output.shape)
         
         logits = self.classifier(sequence_output)
-        print("LOGITS: ", logits)
+        print("LOGITS: ", logits.shape)
         
+        ## ADDING FEATURES
+        feat_outputs = self.roberta_feat(
+            input_ids,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            head_mask=head_mask,
+            inputs_embeds=inputs_embeds,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+        )
+        
+        feat_sequence_output = feat_outputs[0]
+        print("feat_sequence_output: ", feat_sequence_output.shape)
+        feat_sequence_output = self.dropout(feat_sequence_output)
+        print("DROPUOT feat_sequence_output: ", feat_sequence_output.shape)
+        
+        feat_logits = self.feat_classifier(feat_sequence_output)
+        print("FEAT LOGITS: ", feat_logits.shape)
         
 
         loss = None
@@ -1669,8 +1693,11 @@ class newRobertaForTokenClassification(RobertaPreTrainedModel):
             
             arg_feat = arg_feat.to(logits.device)
             labels = labels.to(logits.device)
-            feat_loss = loss_fct(logits.view(-1, self.num_labels), arg_feat.view(-1))
+            
+            feat_loss = loss_fct(feat_logits.view(-1, self.num_comp), arg_feat.view(-1))
+            
             _loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
+            
             loss = self.alpha * ((feat_loss+_loss))/2
             print("Previous loss {} and new loss {}.".format(_loss, loss))
             

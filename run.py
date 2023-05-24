@@ -27,9 +27,11 @@ def train(epoch, model, training_loader, optimizer, device):
       mask = batch['attention_mask'].to(device, dtype = torch.long)
       labels = batch['labels'].to(device, dtype = torch.long)
       comps = batch['comps'].to(device, dtype = torch.long)
+      rels = batch['rels'].to(device, dtype = torch.long)
 
       ## The tensor features are passed to the model
-      outputs = model(input_ids=ids, attention_mask=mask, labels=labels, arg_feat=comps)
+      outputs = model(input_ids=ids, attention_mask=mask, labels=labels, arg_comps=comps, arg_rels=rels)
+      # outputs = model(input_ids=ids, attention_mask=mask, labels=labels)
       loss = outputs.loss
       tr_logits = outputs.logits
       tr_loss += loss.item()
@@ -98,9 +100,11 @@ def valid(model, testing_loader, device, ids_to_labels):
         mask = batch['attention_mask'].to(device, dtype = torch.long)
         labels = batch['labels'].to(device, dtype = torch.long)
         comps = batch['comps'].to(device, dtype = torch.long)
+        rels = batch['rels'].to(device, dtype = torch.long)
         
         ## The tensor features are passed to the model
-        outputs = model(input_ids=ids, attention_mask=mask, labels=labels, arg_feat=comps)
+        outputs = model(input_ids=ids, attention_mask=mask, labels=labels, arg_comps=comps, arg_rels=rels)
+        # outputs = model(input_ids=ids, attention_mask=mask, labels=labels)
         loss = outputs.loss
         eval_logits = outputs.logits
 
@@ -228,9 +232,9 @@ def test(model, tokenizer, test_dataset, ids_to_labels):
         list_cases.append(r["tokens"].strip())
     return list_cases, pred_lines
 
-def make_reports(folder_path, preds, best):
+def make_reports(folder_path, preds, best=None):
     true_tags, pred_tags = [], []
-    report = open(os.path.join(folder_path, "report.txt"), "w") 
+    report = open(os.path.join(folder_path, "_report.txt"), "w") 
     ##### ALL BIO LABELS
     ## Storing the true and predicted token labels
     for snippet in preds:
@@ -275,13 +279,13 @@ def make_reports(folder_path, preds, best):
     
     final_df = pd.concat(all_data)
     
-    final_df.to_csv(os.path.join(folder_path, "report.csv"), index=False)
+    final_df.to_csv(os.path.join(folder_path, "_report.csv"), index=False)
 
 def run_experiment(model_name, num_epochs, lr, device, cased=False, roberta=False, ignore_mismatched_sizes=False):  
     ########## RUNNING EXPERIMENT ##########
 
     ## Define the path of the annotation folder
-    folder = './data/'
+    folder = './final_data/'
 
     ## Define the path of the annotation
     ## The data is already split in train, dev and test
@@ -302,10 +306,15 @@ def run_experiment(model_name, num_epochs, lr, device, cased=False, roberta=Fals
     config.num_labels = len(labels_to_ids)
     config.id2label = ids_to_labels
     config.label2id = labels_to_ids
-
+    config_feat = AutoConfig.from_pretrained(model_name)
+    config_feat.num_labels = 3
+    
+    
     ## Load ModelForTokenClassification
     if ignore_mismatched_sizes:
-        model = AutoModelForTokenClassification.from_pretrained(model_name, config=config, ignore_mismatched_sizes=True)
+        # model = AutoModelForTokenClassification.from_pretrained(model_name, config=config, ignore_mismatched_sizes=True)
+        model = newRobertaForTokenClassification.from_pretrained(model_name, config=config, config_feat=config_feat, ignore_mismatched_sizes=True)
+        # model = RobertaForTokenClassification.from_pretrained(model_name, config=config, ignore_mismatched_sizes=True)
     else:
         model = AutoModelForTokenClassification.from_pretrained(model_name, config=config)
     
@@ -370,41 +379,43 @@ def run_experiment(model_name, num_epochs, lr, device, cased=False, roberta=Fals
     elif model_name == "microsoft/deberta-base": 
         new_mod = DebertaForTokenClassification.from_pretrained(output_model_dir, config = config)
     elif model_name == "Jean-Baptiste/roberta-large-ner-english": #roberta true, ignore = true
-        new_mod = RobertaForTokenClassification.from_pretrained(output_model_dir, config = config, ignore_mismatched_sizes=True)
-    elif model_name == "bhadresh-savani/electra-base-discriminator-finetuned-conll03-english":
-        new_mod = ElectraForTokenClassification.from_pretrained(output_model_dir, config = config, ignore_mismatched_sizes=True)
-    elif model_name == "brad1141/Longformer-finetuned-norm":
-        new_mod = LongformerForTokenClassification.from_pretrained(output_model_dir, config = config, ignore_mismatched_sizes=True)
-    elif model_name == "bert-base-uncased":
-        new_mod = BertForTokenClassification.from_pretrained(output_model_dir, config = config)
-    elif model_name == "albert-base-v2":
-        new_mod = AlbertForTokenClassification.from_pretrained(output_model_dir, config = config)
-    elif model_name == "bert-large-cased":
-        new_mod = BertForTokenClassification.from_pretrained(output_model_dir, config = config)
-    elif model_name == "xlnet-large-cased":
-        new_mod = XLNetForTokenClassification.from_pretrained(output_model_dir, config = config)
-    elif model_name == "albert-xxlarge-v2":
-        new_mod = AlbertForTokenClassification.from_pretrained(output_model_dir, config = config)
-    elif model_name == "distilbert-base-cased":
-        new_mod = DistilBertForTokenClassification.from_pretrained(output_model_dir, config = config)
-    elif model_name == "electra-large-discriminator":
-        new_mod = ElectraForTokenClassification.from_pretrained(output_model_dir, config = config, ignore_mismatched_sizes=True)
-    elif model_name == "xlm-roberta-large":
-        new_mod = XLMRobertaForTokenClassification.from_pretrained(output_model_dir, config = config)
-    elif model_name == "albert-xxlarge-v2":
-        new_mod = AlbertForTokenClassification.from_pretrained(output_model_dir, config = config)
-    elif model_name == "distilbert-base-cased":
-        new_mod = DistilBertForTokenClassification.from_pretrained(output_model_dir, config = config)
-    elif model_name == "dbmdz/electra-large-discriminator-finetuned-conll03-english":
-        new_mod = ElectraForTokenClassification.from_pretrained(output_model_dir, config = config, ignore_mismatched_sizes=True)
+        new_mod = newRobertaForTokenClassification.from_pretrained(output_model_dir, config = config, config_feat=config_feat, ignore_mismatched_sizes=True)
+    # elif model_name == "bhadresh-savani/electra-base-discriminator-finetuned-conll03-english":
+    #     new_mod = ElectraForTokenClassification.from_pretrained(output_model_dir, config = config, ignore_mismatched_sizes=True)
+    # elif model_name == "brad1141/Longformer-finetuned-norm":
+    #     new_mod = LongformerForTokenClassification.from_pretrained(output_model_dir, config = config, ignore_mismatched_sizes=True)
+    # elif model_name == "bert-base-uncased":
+    #     new_mod = BertForTokenClassification.from_pretrained(output_model_dir, config = config)
+    # elif model_name == "albert-base-v2":
+    #     new_mod = AlbertForTokenClassification.from_pretrained(output_model_dir, config = config)
+    # elif model_name == "bert-large-cased":
+    #     new_mod = BertForTokenClassification.from_pretrained(output_model_dir, config = config)
+    # elif model_name == "xlnet-large-cased":
+    #     new_mod = XLNetForTokenClassification.from_pretrained(output_model_dir, config = config)
+    # elif model_name == "albert-xxlarge-v2":
+    #     new_mod = AlbertForTokenClassification.from_pretrained(output_model_dir, config = config)
+    # elif model_name == "distilbert-base-cased":
+    #     new_mod = DistilBertForTokenClassification.from_pretrained(output_model_dir, config = config)
+    # elif model_name == "electra-large-discriminator":
+    #     new_mod = ElectraForTokenClassification.from_pretrained(output_model_dir, config = config, ignore_mismatched_sizes=True)
+    # elif model_name == "xlm-roberta-large":
+    #     new_mod = XLMRobertaForTokenClassification.from_pretrained(output_model_dir, config = config)
+    # elif model_name == "albert-xxlarge-v2":
+    #     new_mod = AlbertForTokenClassification.from_pretrained(output_model_dir, config = config)
+    # elif model_name == "distilbert-base-cased":
+    #     new_mod = DistilBertForTokenClassification.from_pretrained(output_model_dir, config = config)
+    # elif model_name == "dbmdz/electra-large-discriminator-finetuned-conll03-english":
+    #     new_mod = ElectraForTokenClassification.from_pretrained(output_model_dir, config = config, ignore_mismatched_sizes=True)
     
+    # output_model_dir = "./models/upd_results/Jean-Baptiste/roberta-large-ner-english_epochs_30"
+    # new_mod = RobertaForTokenClassification.from_pretrained(output_model_dir, config = config, ignore_mismatched_sizes=True)
     
-    ## Move model to GPU
+    # Move model to GPU
     new_mod = new_mod.to(device)
     snippets, preds = test(model = new_mod, tokenizer = tokenizer, 
                                 test_dataset = test_dataset, ids_to_labels = ids_to_labels)
     
-    make_reports(output_model_dir, preds, best)
+    make_reports(output_model_dir, preds)
     
 
 if __name__ == "__main__":
