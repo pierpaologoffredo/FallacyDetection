@@ -28,6 +28,7 @@ def train(epoch, model, training_loader, optimizer, device):
       labels = batch['labels'].to(device, dtype = torch.long)
       comps = batch['comps'].to(device, dtype = torch.long)
       rels = batch['rels'].to(device, dtype = torch.long)
+      rels = batch['rels'].to(device, dtype = torch.long)
 
       ## The tensor features are passed to the model
       outputs = model(input_ids=ids, attention_mask=mask, labels=labels, arg_comps=comps, arg_rels=rels)
@@ -306,6 +307,10 @@ def run_experiment(model_name, num_epochs, lr, device, cased=False, roberta=Fals
     config.num_labels = len(labels_to_ids)
     config.id2label = ids_to_labels
     config.label2id = labels_to_ids
+    config_feat = AutoConfig.from_pretrained(model_name)
+    config_feat.num_labels = 3
+    
+    
     config_feat = AutoConfig.from_pretrained(model_name)
     config_feat.num_labels = 3
     

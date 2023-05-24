@@ -25,6 +25,8 @@ def read_conll_file(conll_path):
                 splits = line.split("\t")
                 ## We skip the Equivalent relationship due to insignificant num of occurrences
                 # if splits[2] != "Equivalent": 
+                ## We skip the Equivalent relationship due to insignificant num of occurrences
+                # if splits[2] != "Equivalent": 
                 words.append(splits[1])
                 arg_rel.append(splits[2])
                 arg_comp.append(splits[3])
@@ -66,6 +68,7 @@ class FallacyDataset(Dataset):
 
         ## 3. Convert all tags into numbers w/ labels_to_ids
         # ipdb.set_trace()
+        # ipdb.set_trace()
         labels = [self.labels_to_ids[label] for label in tags]
         comps = [1 if comp == "Claim" else 2 if comp == "Premise" else 0 for comp in comps]
         # comps = [1 if comp == "Claim" else 0 for comp in comps] 
@@ -74,6 +77,7 @@ class FallacyDataset(Dataset):
         ## 3.1 Create an empty array filled of "-100" with size max length 
         encoded_labels = torch.full((self.max_len,), fill_value=-100, dtype=torch.long)
         encoded_comps = torch.full((self.max_len,), fill_value=-100, dtype=torch.long)
+        encoded_rels = torch.full((self.max_len,), fill_value=-100, dtype=torch.long)
         encoded_rels = torch.full((self.max_len,), fill_value=-100, dtype=torch.long)
         
         ### Set only labels whose first offset position is 0 and the second is not 0
@@ -84,6 +88,7 @@ class FallacyDataset(Dataset):
                     encoded_labels[idx] = labels[i]
                     encoded_comps[idx] = comps[i]
                     encoded_rels[idx] = rels[i]
+                    encoded_rels[idx] = rels[i]
                 except:
                     pass
                 i += 1
@@ -92,6 +97,7 @@ class FallacyDataset(Dataset):
         item = {key: torch.as_tensor(val) for key, val in encoding.items()}
         item["labels"] = encoded_labels
         item["comps"] = encoded_comps
+        item["rels"] = encoded_rels
         item["rels"] = encoded_rels
         item = {key: val.to(self.device) for key, val in item.items()}
         return item
@@ -216,8 +222,10 @@ def train(epoch, model, training_loader, optimizer, device):
         labels = batch['labels'].to(device, dtype = torch.long)
         comps = batch['comps'].to(device, dtype = torch.long)
         rels = batch['rels'].to(device, dtype = torch.long)
+        rels = batch['rels'].to(device, dtype = torch.long)
 
         ## The tensor features are passed to the model
+        outputs = model(input_ids=ids, attention_mask=mask, labels=labels, arg_comps=comps, arg_rels=rels)
         outputs = model(input_ids=ids, attention_mask=mask, labels=labels, arg_comps=comps, arg_rels=rels)
         loss = outputs.loss
         tr_logits = outputs.logits
@@ -360,13 +368,13 @@ if __name__ == "__main__":
     model = newRobertaForTokenClassification.from_pretrained(model_name, config=config, config_feat=config_feat, ignore_mismatched_sizes=True)
     model.num_labels = len(labels_to_ids)
 
-    ## Move model to GPU
-    model = model.to(device)
-    optimizer = torch.optim.Adam(params=model.parameters(), lr=2e-05)
+    # ## Move model to GPU
+    # model = model.to(device)
+    # optimizer = torch.optim.Adam(params=model.parameters(), lr=2e-05)
     
-    for epoch in tqdm(range(3)):
+    # for epoch in tqdm(range(3)):
         
-        print(f"\nTraining epoch: {epoch + 1}")
-        ## TRAINING MODE
-        train(epoch, model, testing_loader, optimizer, device)
+    #     print(f"\nTraining epoch: {epoch + 1}")
+    #     ## TRAINING MODE
+    #     train(epoch, model, testing_loader, optimizer, device)
     
