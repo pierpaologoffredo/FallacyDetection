@@ -45,7 +45,6 @@ from transformers.utils import (
 )
 from transformers import RobertaConfig
 
-
 logger = logging.get_logger(__name__)
 
 _CHECKPOINT_FOR_DOC = "roberta-base"
@@ -1591,15 +1590,16 @@ class newRobertaForTokenClassification(RobertaPreTrainedModel):
     _keys_to_ignore_on_load_unexpected = [r"pooler"]
     _keys_to_ignore_on_load_missing = [r"position_ids"]
 
-    def __init__(self, config, config_feat):
+    def __init__(self, config, config_feat, alpha, logits_mean):
         super().__init__(config, config_feat)
         self.num_labels = config.num_labels
 
         ## New features
         self.num_comp = config_feat.num_labels
-        self.alpha = 0.5
-        self.feat_classifier = nn.Linear(config_feat.hidden_size, config_feat.num_labels)
+        self.alpha = alpha
+        self.logits_mean = logits_mean
         
+        self.feat_classifier = nn.Linear(config_feat.hidden_size, config_feat.num_labels)
         self.roberta = RobertaModel(config, add_pooling_layer=False)
         classifier_dropout = (
             config.classifier_dropout if config.classifier_dropout is not None else config.hidden_dropout_prob
@@ -1635,7 +1635,8 @@ class newRobertaForTokenClassification(RobertaPreTrainedModel):
         return_dict: Optional[bool] = None,
         
         ## Argumentative feature    
-        arg_feat: Optional[torch.LongTensor] = None,
+        arg_comps: Optional[torch.LongTensor] = None,
+        arg_rels: Optional[torch.LongTensor] = None,
     
     ) -> Union[Tuple[torch.Tensor], TokenClassifierOutput]:
         r"""
@@ -1664,43 +1665,73 @@ class newRobertaForTokenClassification(RobertaPreTrainedModel):
         logits = self.classifier(sequence_output)
         print("LOGITS: ", logits.shape)
         
-        ## ADDING FEATURES
-        feat_outputs = self.roberta_feat(
-            input_ids,
-            attention_mask=attention_mask,
-            token_type_ids=token_type_ids,
-            position_ids=position_ids,
-            head_mask=head_mask,
-            inputs_embeds=inputs_embeds,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
-        )
+        ########## ADDING FEATURES ##########
+        ## Argumentative Component (Claim, Premise, None)
+        if arg_comps is not None:
+            comp_outputs = self.roberta_feat(
+                input_ids,
+                attention_mask=attention_mask,
+                token_type_ids=token_type_ids,
+                position_ids=position_ids,
+                head_mask=head_mask,
+                inputs_embeds=inputs_embeds,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                return_dict=return_dict,
+            )
+            comp_sequence_output = comp_outputs[0]
+            comp_sequence_output = self.dropout(comp_sequence_output)
+            comp_logits = self.feat_classifier(comp_sequence_output)
         
-        feat_sequence_output = feat_outputs[0]
-        print("feat_sequence_output: ", feat_sequence_output.shape)
-        feat_sequence_output = self.dropout(feat_sequence_output)
-        print("DROPUOT feat_sequence_output: ", feat_sequence_output.shape)
+        ## Argumentative Relationship (Attack, Support, None)
+        if arg_rels is not None:
+            rel_outputs = self.roberta_feat(
+                input_ids,
+                attention_mask=attention_mask,
+                token_type_ids=token_type_ids,
+                position_ids=position_ids,
+                head_mask=head_mask,
+                inputs_embeds=inputs_embeds,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                return_dict=return_dict,
+            )
+            rel_sequence_output = rel_outputs[0]
+            rel_sequence_output = self.dropout(rel_sequence_output)
+            rel_logits = self.feat_classifier(rel_sequence_output)
         
-        feat_logits = self.feat_classifier(feat_sequence_output)
-        print("FEAT LOGITS: ", feat_logits.shape)
         
-
+        
         loss = None
         if labels is not None:
             # move labels to correct device to enable model parallelism
             loss_fct = CrossEntropyLoss()
-            
-            arg_feat = arg_feat.to(logits.device)
             labels = labels.to(logits.device)
+            loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
             
-            feat_loss = loss_fct(feat_logits.view(-1, self.num_comp), arg_feat.view(-1))
-            
-            _loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
-            
-            loss = self.alpha * ((feat_loss+_loss))/2
-            print("Previous loss {} and new loss {}.".format(_loss, loss))
-            
+            if arg_comps is not None and arg_rels is None:
+                arg_comps = arg_comps.to(comp_logits.device)
+                comp_loss = loss_fct(comp_logits.view(-1, self.num_comp), arg_comps.view(-1))
+                loss = self.alpha * ((comp_loss + loss))/2
+            elif arg_rels is not None and arg_comps is None:
+                arg_rels = arg_rels.to(rel_logits.device)
+                rel_loss = loss_fct(rel_logits.view(-1, self.num_comp), arg_rels.view(-1))
+                loss = self.alpha * ((rel_loss + loss))/2
+            elif arg_comps is not None and arg_rels is not None:
+                arg_rels = arg_rels.to(rel_logits.device)
+                arg_comps = arg_comps.to(comp_logits.device)
+                comp_loss = loss_fct(comp_logits.view(-1, self.num_comp), arg_comps.view(-1))
+                rel_loss = loss_fct(rel_logits.view(-1, self.num_comp), arg_rels.view(-1))
+                loss = self.alpha * ((comp_loss + rel_loss + loss))/3
+        
+        if self.logits_mean:
+            if arg_comps is not None and arg_rels is None:
+                logits = (logits+comp_logits)/2
+            elif arg_rels is not None and arg_comps is None:
+                logits = (logits+rel_logits)/2
+            elif arg_comps is not None and arg_rels is not None:
+                logits = (logits+comp_logits+rel_logits)/3
+        
         if not return_dict:
             output = (logits,) + outputs[2:]
             return ((loss,) + output) if loss is not None else output
@@ -1711,4 +1742,3 @@ class newRobertaForTokenClassification(RobertaPreTrainedModel):
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
         )
-
